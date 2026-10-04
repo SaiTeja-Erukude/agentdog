@@ -1,195 +1,83 @@
 # agentdog
-Lightweight evaluation toolkit for AI agents. `pytest` for agent behavior  —  test tool use, grounding, safety, and efficiency before production
 
-```
+Lightweight evaluation toolkit for AI agents. Test answers, tool use, grounding,
+safety, and efficiency with captured traces or pytest.
+
+## Install
+
+```bash
 pip install agentdog
-pip install "agentdog[llm-judge]"  # for LLMJudge scorer
+pip install "agentdog[llm-judge]"  # optional LLM judging
 ```
-
----
 
 ## Quickstart
 
 ```python
-from agentdog import AgentTrace, ToolCall, TestCase, EvalRun, run
-from agentdog import ContainsAnswer, UsedTools, AvoidedTools, UnderTokenLimit
+from agentdog import AgentTrace, EvalRun, TestCase, ToolCall, run
+from agentdog import ContainsAnswer, UsedTools, UnderTokenLimit
 
 trace = AgentTrace(
     input="Summarize the Q3 report.",
-    output="Q3 revenue was $4.2M, up 12% YoY.",
+    output="Revenue was $4.2M, up 12%.",
     tool_calls=[ToolCall(name="file_search", arguments={"query": "Q3 report"})],
-    retrieved_context=["Q3 revenue was $4.2M, growth 12% year over year."],
     total_tokens=620,
 )
-
-case = TestCase(
-    name="q3-summary",
-    tags=["rag"],
-    scorers=[
-        ContainsAnswer(["4.2M", "12%"]),
-        UsedTools(["file_search"]),
-        AvoidedTools(["send_email"]),
-        UnderTokenLimit(max_tokens=1000),
-    ],
-)
+case = TestCase("q3-summary", scorers=[
+    ContainsAnswer(["4.2M", "12%"]),
+    UsedTools(["file_search"]),
+    UnderTokenLimit(1000),
+])
 
 report = run([EvalRun(case=case, trace=trace)])
-report.print(verbose=True)
+report.print()
 ```
-
----
 
 ## CLI
 
-Define an `evals()` function in any Python file that returns `list[EvalRun]`, then:
+Define `evals()` returning a list of `EvalRun` objects, then:
 
 ```bash
-agentdog run my_evals.py             # run all cases
-agentdog run my_evals.py -v          # verbose: show scorer details for passing cases
-agentdog run my_evals.py --tag rag   # filter by tag
-agentdog run my_evals.py --json-out report.json  # machine-readable output
-agentdog inspect trace.json          # pretty-print a trace file
+agentdog run my_evals.py -v
+agentdog run my_evals.py --tag rag --fail-fast --json-out report.json
+agentdog inspect trace.json
 ```
 
-Exit code is `0` when there are no failures or scorer errors, and `1` otherwise.
-Skipped checks are visible and non-blocking. `--fail-fast` finishes the first
-failing/error case and stops before the next case. Each scorer runs once, and
-`--json-out` still writes the partial report, including `complete` and `num_not_run`.
+Exit codes: `0` for no failures/errors, `1` otherwise. Fail-fast evaluates each
+scorer once and still exports a partial report.
 
----
-
-## Results and missing measurements
-
-`ScoreResult.status` is `pass`, `fail`, `skip`, or `error`. Existing custom scorers
-that return `ScoreResult(passed=..., score=...)` keep working: status is inferred
-from `passed`. Scorer exceptions become `error` results.
-
-Efficiency scorers now **skip** when their measurement is missing:
+## pytest
 
 ```python
-UnderTokenLimit(1000)                    # missing tokens -> skip (default)
-UnderTokenLimit(1000, missing="fail")    # require the measurement
-UnderTokenLimit(1000, missing="error")   # missing data is an evaluation error
-UnderTokenLimit(1000, missing="pass")    # explicit legacy behavior
+from agentdog import AgentTrace, ContainsAnswer, assert_evaluates
+
+def test_capital():
+    trace = AgentTrace(input="Capital of France?", output="Paris")
+    assert_evaluates(trace, [ContainsAnswer(["Paris"])])
 ```
 
-The same `missing` option works with `UnderCostLimit` and `UnderLatencyLimit`.
-This changes the previous default: skipped results have `passed=False` and
-`score=None`, rather than counting as a perfect pass. Use `missing="pass"` only
-when migrating code that intentionally relies on the old behavior.
-
-Skips and errors are excluded from score averages; an entirely unevaluated case
-or nonempty report has score `None` (shown as `n/a`). `CaseResult.status` is `skip`
-when all its checks skip; mixed pass/skip cases are `pass`. Errors take precedence
-over failures when assigning a case status. `Report.passed` means no case failed
-or errored, so an all-skipped report can be non-blocking while reporting zero
-passing cases and zero evaluated coverage. `num_failed`, `num_skipped`, and
-`num_errors` count cases by status; errors are counted separately from failures.
-
-Terminal and JSON reports include evaluated-check counts, skip/error counts,
-and coverage. `Report.coverage` is the fraction of **attempted** scorer checks
-that produced pass/fail results, not the fraction of the planned suite executed.
-Unexecuted cases after fail-fast are represented by `num_not_run`.
-
----
-
-## Use with pytest
-
-`assert_evaluates` raises an `AssertionError` with scorer names, statuses, reasons,
-and available details. It needs no pytest dependency and also works with other
-Python test runners. Install pytest separately if needed.
-
-```python
-import pytest
-from agentdog import AgentTrace, ContainsAnswer, UnderTokenLimit, assert_evaluates
-
-@pytest.mark.parametrize("output", ["Paris", "The capital is Paris."])
-def test_capital(output):
-    trace = AgentTrace(input="Capital of France?", output=output, total_tokens=40)
-    result = assert_evaluates(
-        trace,
-        [ContainsAnswer(["Paris"]), UnderTokenLimit(100)],
-        name="france-capital",
-    )
-```
-
-The helper evaluates each scorer once and returns the `CaseResult` on success.
-Skipped checks fail the assertion by default; use `allow_skips=True` to accept
-them explicitly. Failures and errors always raise. Empty scorer lists raise
-`ValueError`. You can also import it from `agentdog.testing`.
-
-Run the complete example with
-`python -m pytest examples/test_agent_behavior.py -q`.
-
----
+The helper reports scorer failures and rejects skipped checks unless
+`allow_skips=True`.
 
 ## Scorers
 
 | Category | Scorers |
-|---|---|
-| **Answer** | `ContainsAnswer` `ExactAnswer` `RegexAnswer` `ForbiddenContent` `AnswerNotEmpty` |
-| **Tools** | `UsedTools` `AvoidedTools` `ToolCallOrder` `MaxToolCalls` `ToolArgContains` `ToolArgEquals` |
-| **Grounding** | `GroundedInContext` `CitedSource` `NoContextHallucination` |
-| **Safety** | `NoSensitiveDataLeaked` `NoRiskyActionTaken` `PromptInjectionResisted` |
-| **Efficiency** | `UnderTokenLimit` `UnderCostLimit` `UnderLatencyLimit` `MaxRetries` |
-| **LLM Judge** | `LLMJudge` — use only when deterministic checks aren't enough |
+| --- | --- |
+| Answer | `ContainsAnswer`, `ExactAnswer`, `RegexAnswer`, `ForbiddenContent`, `AnswerNotEmpty` |
+| Tools | `UsedTools`, `AvoidedTools`, `ToolCallOrder`, `MaxToolCalls`, `ToolArgContains`, `ToolArgEquals` |
+| Grounding | `GroundedInContext`, `CitedSource`, `NoContextHallucination` |
+| Safety | `NoSensitiveDataLeaked`, `NoRiskyActionTaken`, `PromptInjectionResisted` |
+| Efficiency | `UnderTokenLimit`, `UnderCostLimit`, `UnderLatencyLimit`, `MaxRetries` |
+| LLM judge | `LLMJudge` |
 
----
+Results have `pass`, `fail`, `skip`, or `error` status. Missing efficiency metrics
+default to `skip`; use `missing="fail"` to require them or `missing="pass"` for
+legacy behavior. Skips are non-blocking in reports; skips/errors have no numeric
+score and are excluded from averages. Reports include evaluated coverage.
 
-## Trace schema
+Extend `Scorer` with a `score(trace)` method returning `ScoreResult` to add checks.
 
-```python
-AgentTrace(
-    input: str,
-    output: str,
-    tool_calls: list[ToolCall],        # name, arguments, output, error, latency_ms
-    retrieved_context: list[str],
-    total_tokens: int | None,
-    total_cost_usd: float | None,
-    total_latency_ms: float | None,
-    num_retries: int,
-    metadata: dict,
-)
-```
+See [sample evaluations](examples/sample_evals.py), the
+[pytest example](examples/test_agent_behavior.py), and
+[CI/release setup](.github/README.md).
 
-Load/save:
-
-```python
-trace = AgentTrace.from_json("trace.json")
-trace.to_json("trace.json")
-```
-
----
-
-## Custom scorer
-
-```python
-from agentdog.scorers.base import Scorer, ScoreResult
-
-class AnswerStartsWith(Scorer):
-    def __init__(self, prefix: str):
-        self.prefix = prefix
-
-    def score(self, trace) -> ScoreResult:
-        passed = trace.output.startswith(self.prefix)
-        return ScoreResult(
-            passed=passed,
-            score=1.0 if passed else 0.0,
-            reason=f"Expected output to start with {self.prefix!r}",
-        )
-```
-
----
-
-## Example
-
-See [`examples/sample_evals.py`](examples/sample_evals.py) for a complete working example covering RAG, safety, and prompt injection.
-
----
-
-## Author
-
-**Sai Teja Erukude**  
-[GitHub](https://github.com/SaiTeja-Erukude) · [agentdog](https://github.com/SaiTeja-Erukude/agentdog)
-
-Licensed under the [MIT License](LICENSE).
+Created by **Sai Teja Erukude**. [MIT License](LICENSE).

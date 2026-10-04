@@ -1,0 +1,47 @@
+name: Test and build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install test and build tools
+        run: python -m pip install -e ".[dev]" build twine
+      - name: Run tests and pytest example
+        run: python -m pytest tests examples/test_agent_behavior.py -q
+      - name: Build distributions
+        run: python -m build
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+      - name: Install wheel
+        run: python -m pip install --force-reinstall --no-deps dist/*.whl
+      - name: Smoke-test installed wheel
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -I - <<'PY'
+          from importlib.metadata import version
+          import agentdog
+          from agentdog import AgentTrace, ContainsAnswer, UnderTokenLimit, assert_evaluates
+
+          if agentdog.__version__ != version('agentdog'):
+              raise RuntimeError('Package/version mismatch')
+          trace = AgentTrace(input='Capital of France?', output='Paris', total_tokens=40)
+          assert_evaluates(trace, [ContainsAnswer(['Paris']), UnderTokenLimit(100)])
+          PY
+          agentdog --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/*
+          if-no-files-found: error
