@@ -62,18 +62,7 @@ def run_cmd(module: Path, verbose: bool, fail_fast: bool, tags: tuple[str, ...],
             click.echo(f"No cases matched tags: {list(tags)}")
             return
 
-    if fail_fast:
-        filtered: list[EvalRun] = []
-        for er in eval_runs:
-            filtered.append(er)
-            sub = run([er])
-            if not sub.passed:
-                report = run(filtered)
-                report.print(verbose=verbose)
-                sys.exit(1)
-        eval_runs = filtered
-
-    report = run(eval_runs)
+    report = run(eval_runs, fail_fast=fail_fast)
     report.print(verbose=verbose)
 
     if json_out:
@@ -108,18 +97,34 @@ def _write_json_report(report, path: Path) -> None:
         "elapsed_ms": report.elapsed_ms,
         "num_passed": report.num_passed,
         "num_failed": report.num_failed,
+        "num_skipped": report.num_skipped,
+        "num_errors": report.num_errors,
+        "num_evaluated": report.num_evaluated,
+        "num_scorers": report.num_scorers,
+        "num_scorers_skipped": report.num_scorers_skipped,
+        "num_scorer_errors": report.num_scorer_errors,
+        "coverage": report.coverage,
+        "total_cases": report.total_cases,
+        "num_not_run": report.num_not_run,
+        "complete": report.complete,
         "cases": [
             {
                 "name": cr.case_name,
                 "passed": cr.passed,
+                "status": cr.status,
                 "score": cr.score,
                 "tags": cr.tags,
+                "num_evaluated": cr.num_evaluated,
+                "num_skipped": cr.num_skipped,
+                "num_errors": cr.num_errors,
                 "scorers": [
                     {
                         "name": sr.scorer_name,
                         "passed": sr.result.passed,
+                        "status": sr.result.status,
                         "score": sr.result.score,
                         "reason": sr.result.reason,
+                        "details": sr.result.details,
                     }
                     for sr in cr.scorer_results
                 ],
@@ -127,4 +132,4 @@ def _write_json_report(report, path: Path) -> None:
             for cr in report.case_results
         ],
     }
-    path.write_text(json.dumps(data, indent=2))
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")

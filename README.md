@@ -51,7 +51,75 @@ agentdog run my_evals.py --json-out report.json  # machine-readable output
 agentdog inspect trace.json          # pretty-print a trace file
 ```
 
-Exit code is `0` on full pass, `1` on any failure — CI-friendly by default.
+Exit code is `0` when there are no failures or scorer errors, and `1` otherwise.
+Skipped checks are visible and non-blocking. `--fail-fast` finishes the first
+failing/error case and stops before the next case. Each scorer runs once, and
+`--json-out` still writes the partial report, including `complete` and `num_not_run`.
+
+---
+
+## Results and missing measurements
+
+`ScoreResult.status` is `pass`, `fail`, `skip`, or `error`. Existing custom scorers
+that return `ScoreResult(passed=..., score=...)` keep working: status is inferred
+from `passed`. Scorer exceptions become `error` results.
+
+Efficiency scorers now **skip** when their measurement is missing:
+
+```python
+UnderTokenLimit(1000)                    # missing tokens -> skip (default)
+UnderTokenLimit(1000, missing="fail")    # require the measurement
+UnderTokenLimit(1000, missing="error")   # missing data is an evaluation error
+UnderTokenLimit(1000, missing="pass")    # explicit legacy behavior
+```
+
+The same `missing` option works with `UnderCostLimit` and `UnderLatencyLimit`.
+This changes the previous default: skipped results have `passed=False` and
+`score=None`, rather than counting as a perfect pass. Use `missing="pass"` only
+when migrating code that intentionally relies on the old behavior.
+
+Skips and errors are excluded from score averages; an entirely unevaluated case
+or nonempty report has score `None` (shown as `n/a`). `CaseResult.status` is `skip`
+when all its checks skip; mixed pass/skip cases are `pass`. Errors take precedence
+over failures when assigning a case status. `Report.passed` means no case failed
+or errored, so an all-skipped report can be non-blocking while reporting zero
+passing cases and zero evaluated coverage. `num_failed`, `num_skipped`, and
+`num_errors` count cases by status; errors are counted separately from failures.
+
+Terminal and JSON reports include evaluated-check counts, skip/error counts,
+and coverage. `Report.coverage` is the fraction of **attempted** scorer checks
+that produced pass/fail results, not the fraction of the planned suite executed.
+Unexecuted cases after fail-fast are represented by `num_not_run`.
+
+---
+
+## Use with pytest
+
+`assert_evaluates` raises an `AssertionError` with scorer names, statuses, reasons,
+and available details. It needs no pytest dependency and also works with other
+Python test runners. Install pytest separately if needed.
+
+```python
+import pytest
+from agentdog import AgentTrace, ContainsAnswer, UnderTokenLimit, assert_evaluates
+
+@pytest.mark.parametrize("output", ["Paris", "The capital is Paris."])
+def test_capital(output):
+    trace = AgentTrace(input="Capital of France?", output=output, total_tokens=40)
+    result = assert_evaluates(
+        trace,
+        [ContainsAnswer(["Paris"]), UnderTokenLimit(100)],
+        name="france-capital",
+    )
+```
+
+The helper evaluates each scorer once and returns the `CaseResult` on success.
+Skipped checks fail the assertion by default; use `allow_skips=True` to accept
+them explicitly. Failures and errors always raise. Empty scorer lists raise
+`ValueError`. You can also import it from `agentdog.testing`.
+
+Run the complete example with
+`python -m pytest examples/test_agent_behavior.py -q`.
 
 ---
 

@@ -32,8 +32,9 @@ from .scorers import (
     UsedTools,
 )
 from .trace import AgentTrace, ToolCall
+from .testing import assert_evaluates
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     # trace
@@ -44,6 +45,7 @@ __all__ = [
     "EvalRun",
     # runner
     "run",
+    "assert_evaluates",
     # report
     "Report",
     "CaseResult",

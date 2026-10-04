@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentdog"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight evaluation toolkit for AI agents — test tool use, grounding, safety, and efficiency before production"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ authors = [{ name = "Sai Teja Erukude" }]
 license = { file = "LICENSE" }
 keywords = ["llm", "ai", "agent", "evaluation", "testing", "rag", "tool-use", "safety", "prompt-injection", "evals"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",

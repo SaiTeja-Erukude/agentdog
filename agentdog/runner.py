@@ -5,15 +5,20 @@ from typing import Sequence
 
 from .case import EvalRun
 from .report import CaseResult, Report, ScorerResult
+from .scorers.base import ScoreResult
 
 
-def run(eval_runs: Sequence[EvalRun], verbose: bool = False) -> Report:
+def run(
+    eval_runs: Sequence[EvalRun], verbose: bool = False, *, fail_fast: bool = False
+) -> Report:
     """
     Execute all scorers for each EvalRun and return a Report.
 
     Args:
         eval_runs: Sequence of (TestCase, AgentTrace) pairs to evaluate.
-        verbose:   If True, print detailed scorer output for passing cases too.
+        verbose:   Retained for compatibility; use Report.print(verbose=True)
+                   to control detailed output.
+        fail_fast: Stop after the first case with a failure or scorer error.
 
     Returns:
         Report with per-case and aggregate results.
@@ -27,11 +32,10 @@ def run(eval_runs: Sequence[EvalRun], verbose: bool = False) -> Report:
             try:
                 result = scorer.score(er.trace)
             except Exception as exc:
-                from .scorers.base import ScoreResult
-
                 result = ScoreResult(
                     passed=False,
-                    score=0.0,
+                    score=None,
+                    status="error",
                     reason=f"Scorer raised exception: {exc}",
                 )
             scorer_results.append(ScorerResult(scorer_name=scorer.name, result=result))
@@ -43,6 +47,10 @@ def run(eval_runs: Sequence[EvalRun], verbose: bool = False) -> Report:
                 tags=er.case.tags,
             )
         )
+        if fail_fast and case_results[-1].status in ("fail", "error"):
+            break
 
     elapsed_ms = (time.perf_counter() - start) * 1000
-    return Report(case_results=case_results, elapsed_ms=elapsed_ms)
+    return Report(
+        case_results=case_results, elapsed_ms=elapsed_ms, total_cases=len(eval_runs)
+    )
